@@ -32,6 +32,8 @@ ADMIN_ID = _int("ADMIN_ID")
 TG_API_ID = _int("TG_API_ID")
 TG_API_HASH = os.getenv("TG_API_HASH", "").strip()
 TG_PHONE = os.getenv("TG_PHONE", "").strip()
+# чтение каналов включается само, когда заполнены все три поля выше
+TG_PARSER_ENABLED = bool(TG_API_ID and TG_API_HASH and TG_PHONE)
 
 POLZA_API_KEY = os.getenv("POLZA_API_KEY", "").strip()
 POLZA_BASE_URL = os.getenv("POLZA_BASE_URL", "https://polza.ai/api/v1").strip()
@@ -80,9 +82,6 @@ def check() -> list[str]:
     missing = []
     for name, val in [
         ("BOT_TOKEN", BOT_TOKEN),
-        ("TG_API_ID", TG_API_ID),
-        ("TG_API_HASH", TG_API_HASH),
-        ("TG_PHONE", TG_PHONE),
         ("POLZA_API_KEY", POLZA_API_KEY),
     ]:
         if not val:

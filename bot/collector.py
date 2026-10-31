@@ -61,7 +61,7 @@ async def collect(tg: TgParser, progress: Progress) -> tuple[list[Item], list[st
     since = datetime.now(timezone.utc) - timedelta(hours=config.HOURS_BACK)
 
     # 1. каналы
-    channels = config.read_list(config.CHANNELS_FILE)
+    channels = config.read_list(config.CHANNELS_FILE) if tg.enabled else []
     for i, ch in enumerate(channels, 1):
         await progress(f"📥 каналы {i}/{len(channels)}: {ch}")
         try:

@@ -30,6 +30,23 @@ def fail(text: str) -> None:
     sys.exit(1)
 
 
+async def _start_userbot(tg: TgParser, bot: Bot) -> None:
+    say("[2/3] Подключаюсь к телеге аккаунтом для чтения каналов…")
+    say("      (в первый раз спросит код — он придёт в приложение телеги, не в смс)")
+    try:
+        await tg.start()
+    except (ConnectionError, asyncio.TimeoutError, OSError) as e:
+        await bot.session.close()
+        fail(f"Не подключился к серверам телеги ({e.__class__.__name__}: {e})\n" + NO_PROXY_HINT
+             + "\n   или MTPROXY=host:port:secret")
+    except Exception as e:  # noqa: BLE001 — неверный api_id, номер, код и т.п.
+        await bot.session.close()
+        fail(f"Не вошёл в аккаунт: {e.__class__.__name__}: {e}\n"
+             "   Проверь TG_API_ID, TG_API_HASH и TG_PHONE (формат +79991234567). Если прокси кривой — тоже сюда.")
+    tg_me = await tg.client.get_me()
+    say(f"      ок, вошёл как {tg_me.first_name} (@{tg_me.username or '-'})")
+
+
 async def main() -> None:
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.getLogger("bot").setLevel(logging.INFO)
@@ -61,21 +78,11 @@ async def main() -> None:
     say(f"      ок, бот @{me.username}")
 
     # 2. userbot
-    say("[2/3] Подключаюсь к телеге аккаунтом для чтения каналов…")
-    say("      (в первый раз спросит код — он придёт в приложение телеги, не в смс)")
     tg = TgParser()
-    try:
-        await tg.start()
-    except (ConnectionError, asyncio.TimeoutError, OSError) as e:
-        await bot.session.close()
-        fail(f"Не подключился к серверам телеги ({e.__class__.__name__}: {e})\n" + NO_PROXY_HINT
-             + "\n   или MTPROXY=host:port:secret")
-    except Exception as e:  # noqa: BLE001 — неверный api_id, номер, код и т.п.
-        await bot.session.close()
-        fail(f"Не вошёл в аккаунт: {e.__class__.__name__}: {e}\n"
-             "   Проверь TG_API_ID, TG_API_HASH и TG_PHONE (формат +79991234567). Если прокси кривой — тоже сюда.")
-    tg_me = await tg.client.get_me()
-    say(f"      ок, вошёл как {tg_me.first_name} (@{tg_me.username or '-'})")
+    if not tg.enabled:
+        say("[2/3] Чтение тг-каналов выключено (TG_API_ID / TG_API_HASH / TG_PHONE пустые) — работаем только по сайтам")
+    else:
+        await _start_userbot(tg, bot)
 
     # 3. нейронка
     say("[3/3] Проверяю Polza AI…")

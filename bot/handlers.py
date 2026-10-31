@@ -96,7 +96,10 @@ async def cmd_start(msg: Message) -> None:
 async def cmd_sources(msg: Message) -> None:
     channels = config.read_list(config.CHANNELS_FILE)
     sites = config.read_list(config.SITES_FILE)
-    text = "📢 <b>Каналы</b>\n" + ("\n".join(channels) or "пусто")
+    text = "📢 <b>Каналы</b>"
+    if not config.TG_PARSER_ENABLED:
+        text += " (выключены — нет TG_API_ID/TG_API_HASH/TG_PHONE в .env)"
+    text += "\n" + ("\n".join(channels) or "пусто")
     text += "\n\n🌐 <b>Сайты</b>\n" + ("\n".join(sites) or "пусто")
     text += "\n\nПравить можно в файлах channels.txt и sites.txt"
     await msg.answer(text, parse_mode="HTML", link_preview_options=NO_PREVIEW)
@@ -109,7 +112,10 @@ async def cmd_addchannel(msg: Message) -> None:
         await msg.answer("Пример: /addchannel @username")
         return
     ok = config.append_to_list(config.CHANNELS_FILE, arg[0].strip())
-    await msg.answer("✅ добавил" if ok else "уже есть в списке")
+    text = "✅ добавил" if ok else "уже есть в списке"
+    if not config.TG_PARSER_ENABLED:
+        text += "\n⚠️ чтение каналов пока выключено — заработает, когда заполнишь TG_API_ID/TG_API_HASH/TG_PHONE"
+    await msg.answer(text)
 
 
 @router.message(Command("addsite"))

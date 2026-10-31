@@ -44,9 +44,17 @@ def _proxy_kwargs() -> dict:
 
 
 class TgParser:
-    """Читает каналы из-под твоего аккаунта (userbot через Telethon)."""
+    """Читает каналы из-под твоего аккаунта (userbot через Telethon).
+
+    Если TG_API_ID / TG_API_HASH / TG_PHONE не заполнены — работает как заглушка:
+    ничего не подключает, каналы не читает.
+    """
 
     def __init__(self) -> None:
+        self.enabled = config.TG_PARSER_ENABLED
+        self.client: TelegramClient | None = None
+        if not self.enabled:
+            return
         self.client = TelegramClient(
             str(config.SESSION_PATH),
             config.TG_API_ID,
@@ -58,6 +66,8 @@ class TgParser:
         )
 
     async def start(self) -> None:
+        if not self.enabled:
+            return
         await asyncio.wait_for(self.client.connect(), timeout=90)
         if not self.client.is_connected():
             raise ConnectionError("не подключился к серверам телеги")
@@ -67,9 +77,12 @@ class TgParser:
         log.info("userbot вошёл как %s", me.username or me.first_name)
 
     async def stop(self) -> None:
-        await self.client.disconnect()
+        if self.client:
+            await self.client.disconnect()
 
     async def fetch(self, channel: str, since: datetime, limit: int) -> list[Item]:
+        if not self.enabled:
+            return []
         entity = await self.client.get_entity(_normalize(channel))
         username = getattr(entity, "username", None)
         name = f"@{username}" if username else getattr(entity, "title", channel)
@@ -105,7 +118,7 @@ class TgParser:
         return items
 
     async def download_photo(self, item: Item) -> bytes | None:
-        if item.media_msg is None:
+        if not self.enabled or item.media_msg is None:
             return None
         try:
             return await self.client.download_media(item.media_msg, file=bytes)
