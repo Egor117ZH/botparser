@@ -128,7 +128,8 @@ async def fetch_sites(sites: list[str], limit: int, progress=None) -> tuple[list
     sem = asyncio.Semaphore(4)
     done = 0
 
-    async with httpx.AsyncClient(headers=HEADERS, follow_redirects=True, timeout=25) as client:
+    proxy = config.PROXY if (config.PROXY_FOR_SITES and config.PROXY) else None
+    async with httpx.AsyncClient(headers=HEADERS, follow_redirects=True, timeout=25, proxy=proxy) as client:
 
         async def one(site: str) -> None:
             nonlocal done

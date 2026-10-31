@@ -4,7 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(ROOT / ".env")
+load_dotenv(ROOT / ".env", encoding="utf-8-sig")
 
 DATA_DIR = ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
@@ -36,6 +36,14 @@ TG_PHONE = os.getenv("TG_PHONE", "").strip()
 POLZA_API_KEY = os.getenv("POLZA_API_KEY", "").strip()
 POLZA_BASE_URL = os.getenv("POLZA_BASE_URL", "https://polza.ai/api/v1").strip()
 POLZA_MODEL = os.getenv("POLZA_MODEL", "openai/gpt-4o-mini").strip()
+
+# --- прокси (для РФ) ---
+# PROXY — socks5/http прокси для телеги: socks5://user:pass@1.2.3.4:1080 или http://user:pass@1.2.3.4:8080
+PROXY = os.getenv("PROXY", "").strip()
+# MTPROXY — MTProto-прокси только для чтения каналов, формат host:port:secret (если есть PROXY — не нужен)
+MTPROXY = os.getenv("MTPROXY", "").strip()
+# гнать ли через PROXY ещё и парсинг сайтов (нужно, если зарубежные сайты режут РФ)
+PROXY_FOR_SITES = os.getenv("PROXY_FOR_SITES", "0").strip().lower() in ("1", "true", "yes", "да")
 
 # --- настройки сбора ---
 HOURS_BACK = _int("HOURS_BACK", 48)              # за сколько часов брать посты из каналов

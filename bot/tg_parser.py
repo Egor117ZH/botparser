@@ -1,7 +1,9 @@
+import asyncio
 import logging
 from datetime import datetime
+from urllib.parse import unquote, urlparse
 
-from telethon import TelegramClient
+from telethon import TelegramClient, connection
 
 from . import config
 from .models import Item
@@ -16,13 +18,49 @@ def _normalize(channel: str) -> str:
     return channel
 
 
+def _proxy_kwargs() -> dict:
+    if config.MTPROXY:
+        host, port, secret = config.MTPROXY.split(":", 2)
+        return {
+            "connection": connection.ConnectionTcpMTProxyRandomizedIntermediate,
+            "proxy": (host, int(port), secret),
+        }
+    if config.PROXY:
+        u = urlparse(config.PROXY)
+        scheme = u.scheme.lower().replace("socks5h", "socks5")
+        if scheme not in ("socks5", "socks4", "http", "https"):
+            raise ValueError(f"не понимаю тип прокси: {u.scheme} (нужен socks5:// или http://)")
+        return {
+            "proxy": {
+                "proxy_type": "http" if scheme == "https" else scheme,
+                "addr": u.hostname,
+                "port": u.port,
+                "username": unquote(u.username) if u.username else None,
+                "password": unquote(u.password) if u.password else None,
+                "rdns": True,
+            }
+        }
+    return {}
+
+
 class TgParser:
     """Читает каналы из-под твоего аккаунта (userbot через Telethon)."""
 
     def __init__(self) -> None:
-        self.client = TelegramClient(str(config.SESSION_PATH), config.TG_API_ID, config.TG_API_HASH)
+        self.client = TelegramClient(
+            str(config.SESSION_PATH),
+            config.TG_API_ID,
+            config.TG_API_HASH,
+            timeout=15,
+            connection_retries=3,
+            retry_delay=2,
+            **_proxy_kwargs(),
+        )
 
     async def start(self) -> None:
+        await asyncio.wait_for(self.client.connect(), timeout=90)
+        if not self.client.is_connected():
+            raise ConnectionError("не подключился к серверам телеги")
         # при первом запуске спросит код из телеги (и пароль 2FA, если есть) прямо в консоли
         await self.client.start(phone=config.TG_PHONE)
         me = await self.client.get_me()

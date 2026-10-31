@@ -1,5 +1,7 @@
 @echo off
 chcp 65001 >nul
+set PYTHONUNBUFFERED=1
+set PYTHONIOENCODING=utf-8
 cd /d "%~dp0"
 if not exist main.py (
   echo.
@@ -10,18 +12,40 @@ if not exist main.py (
   pause
   exit /b
 )
-if not exist venv (
-  echo Создаю окружение...
+set FIRST=0
+if not exist venv\Scripts\python.exe (
+  echo === Создаю окружение python...
   python -m venv venv
+  set FIRST=1
+)
+if not exist venv\Scripts\python.exe (
+  echo [!] Не получилось создать окружение. Проверь, что python установлен и есть в PATH.
+  pause
+  exit /b
 )
 call venv\Scripts\activate.bat
-pip install -q -r requirements.txt
+echo === Проверяю библиотеки...
+if "%FIRST%"=="1" (
+  echo     первый раз ставлю всё, это займёт пару минут
+  python -m pip install --disable-pip-version-check -r requirements.txt
+) else (
+  python -m pip install --disable-pip-version-check -q -r requirements.txt
+)
+if errorlevel 1 (
+  echo [!] Не поставились библиотеки - скрин ошибки выше пришли мне.
+  pause
+  exit /b
+)
 if not exist .env (
   copy .env.example .env >nul
-  echo Создал .env - впиши туда ключи и запусти ещё раз
+  echo === Создал .env - впиши туда ключи, сохрани, закрой блокнот и запусти run.bat ещё раз
   notepad .env
   pause
   exit /b
 )
+echo === Запускаю бота...
+echo.
 python main.py
+echo.
+echo === Бот остановлен.
 pause
