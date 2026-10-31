@@ -18,6 +18,8 @@
 
 ## Запуск на Windows
 
+Нужен **Python 3.12** (подойдёт 3.10–3.14), 64-bit. На 3.15 и 32-битном питоне библиотеки не ставятся. `run.bat` сам найдёт подходящий питон, если их стоит несколько.
+
 1. Получи доступы:
    - **BOT_TOKEN**: в @BotFather → `/newbot`
    - **TG_API_ID / TG_API_HASH**: https://my.telegram.org → API development tools (название приложения любое)

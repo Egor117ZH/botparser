@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 >nul
+setlocal
 set PYTHONUNBUFFERED=1
 set PYTHONIOENCODING=utf-8
 cd /d "%~dp0"
@@ -12,30 +13,52 @@ if not exist main.py (
   pause
   exit /b
 )
-set FIRST=0
-if not exist venv\Scripts\python.exe (
-  echo === Создаю окружение python...
-  python -m venv venv
-  set FIRST=1
+
+rem --- ищем подходящий python: 3.10-3.14, 64-bit ---
+set "PY="
+for %%v in (3.12 3.13 3.11 3.14 3.10) do (
+  if not defined PY (
+    py -%%v-64 -c "import sys" >nul 2>&1 && set "PY=py -%%v-64"
+  )
+)
+if not defined PY (
+  python -c "import sys; sys.exit(0 if (3,10)<=sys.version_info[:2]<=(3,14) and sys.maxsize>2**32 else 1)" >nul 2>&1 && set "PY=python"
+)
+if not defined PY goto badpython
+
+rem --- если окружение создано на неподходящем питоне - пересоздаём ---
+if exist venv\Scripts\python.exe (
+  venv\Scripts\python.exe -c "import sys; sys.exit(0 if (3,10)<=sys.version_info[:2]<=(3,14) and sys.maxsize>2**32 else 1)" >nul 2>&1
+  if errorlevel 1 (
+    echo === Старое окружение на неподходящем питоне, пересоздаю...
+    rmdir /s /q venv
+  )
 )
 if not exist venv\Scripts\python.exe (
-  echo [!] Не получилось создать окружение. Проверь, что python установлен и есть в PATH.
+  echo === Создаю окружение на %PY%...
+  %PY% -m venv venv
+)
+if not exist venv\Scripts\python.exe (
+  echo [!] Не получилось создать окружение.
   pause
   exit /b
 )
-call venv\Scripts\activate.bat
-echo === Проверяю библиотеки...
-if "%FIRST%"=="1" (
-  echo     первый раз ставлю всё, это займёт пару минут
-  python -m pip install --disable-pip-version-check -r requirements.txt
+venv\Scripts\python.exe --version
+
+if not exist venv\.installed (
+  echo === Ставлю библиотеки, первый раз займёт пару минут...
+  venv\Scripts\python.exe -m pip install --disable-pip-version-check --prefer-binary -r requirements.txt
 ) else (
-  python -m pip install --disable-pip-version-check -q -r requirements.txt
+  echo === Проверяю библиотеки...
+  venv\Scripts\python.exe -m pip install --disable-pip-version-check --prefer-binary -q -r requirements.txt
 )
 if errorlevel 1 (
   echo [!] Не поставились библиотеки - скрин ошибки выше пришли мне.
   pause
   exit /b
 )
+echo ok> venv\.installed
+
 if not exist .env (
   copy .env.example .env >nul
   echo === Создал .env - впиши туда ключи, сохрани, закрой блокнот и запусти run.bat ещё раз
@@ -43,9 +66,23 @@ if not exist .env (
   pause
   exit /b
 )
+
 echo === Запускаю бота...
 echo.
-python main.py
+venv\Scripts\python.exe main.py
 echo.
 echo === Бот остановлен.
+pause
+exit /b
+
+:badpython
+echo.
+echo [!] Не нашёл подходящий Python. Сейчас у тебя:
+python -c "import sys, platform; print(sys.version.split()[0], platform.architecture()[0])"
+echo.
+echo [!] Нужен Python 3.12, 64-bit. На слишком новом или 32-битном питоне библиотеки не ставятся.
+echo [!] Скачай: https://www.python.org/downloads/windows/
+echo [!] ищи "Python 3.12.x" - "Windows installer (64-bit)", ставь с настройками по умолчанию.
+echo [!] Старый питон удалять не надо. Потом просто снова запусти run.bat.
+echo.
 pause
