@@ -25,8 +25,21 @@ def conn() -> sqlite3.Connection:
                 text    TEXT,
                 ts      INTEGER NOT NULL
             );
+            -- о чём уже писали: чтобы не было повторов между сборами
+            CREATE TABLE IF NOT EXISTS history (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                gist     TEXT NOT NULL,
+                title    TEXT,
+                url      TEXT,
+                ts       INTEGER NOT NULL
+            );
             """
         )
+        try:  # база от старой версии — докидываем колонку
+            _conn.execute("ALTER TABLE posts ADD COLUMN category TEXT")
+        except sqlite3.OperationalError:
+            pass
     return _conn
 
 
@@ -40,10 +53,10 @@ def mark_seen(keys: list[str]) -> None:
     conn().commit()
 
 
-def save_post(kind: str, source: str, url: str, text: str) -> int:
+def save_post(category: str, kind: str, source: str, url: str, text: str) -> int:
     cur = conn().execute(
-        "INSERT INTO posts (kind, source, url, text, ts) VALUES (?, ?, ?, ?, ?)",
-        (kind, source, url, text, int(time.time())),
+        "INSERT INTO posts (category, kind, source, url, text, ts) VALUES (?, ?, ?, ?, ?, ?)",
+        (category, kind, source, url, text, int(time.time())),
     )
     conn().commit()
     return cur.lastrowid
@@ -53,7 +66,22 @@ def get_post(post_id: int) -> sqlite3.Row | None:
     return conn().execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
 
 
-def reset_seen() -> int:
-    cur = conn().execute("DELETE FROM seen")
+def add_history(category: str, gist: str, title: str, url: str) -> None:
+    conn().execute(
+        "INSERT INTO history (category, gist, title, url, ts) VALUES (?, ?, ?, ?, ?)",
+        (category, gist, title, url, int(time.time())),
+    )
     conn().commit()
-    return cur.rowcount
+
+
+def get_history(category: str, limit: int) -> list[sqlite3.Row]:
+    return conn().execute(
+        "SELECT gist, title FROM history WHERE category = ? ORDER BY id DESC LIMIT ?", (category, limit)
+    ).fetchall()
+
+
+def reset() -> tuple[int, int]:
+    seen = conn().execute("DELETE FROM seen").rowcount
+    hist = conn().execute("DELETE FROM history").rowcount
+    conn().commit()
+    return seen, hist

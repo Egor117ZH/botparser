@@ -9,8 +9,8 @@ load_dotenv(ROOT / ".env", encoding="utf-8-sig")
 DATA_DIR = ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
-CHANNELS_FILE = ROOT / "channels.txt"
-SITES_FILE = ROOT / "sites.txt"
+# старые файлы (до разделения на рубрики) — только чтобы предупредить при запуске
+OLD_SOURCE_FILES = [ROOT / "channels.txt", ROOT / "sites.txt"]
 DB_PATH = DATA_DIR / "bot.db"
 SESSION_PATH = DATA_DIR / "userbot"
 
@@ -47,6 +47,23 @@ MTPROXY = os.getenv("MTPROXY", "").strip()
 # гнать ли через PROXY ещё и парсинг сайтов (нужно, если зарубежные сайты режут РФ)
 PROXY_FOR_SITES = os.getenv("PROXY_FOR_SITES", "0").strip().lower() in ("1", "true", "yes", "да")
 
+# --- рубрики ---
+# у каждой рубрики свой файл источников: сайты и тг-каналы вперемешку, по одному на строку
+CATEGORIES: dict[str, dict] = {
+    "news": {
+        "name": "Новости",
+        "emoji": "📰",
+        "file": ROOT / "sources_news.txt",
+        "hashtag": os.getenv("NEWS_HASHTAG", "#Новости").strip(),
+    },
+    "stories": {
+        "name": "Мышление",
+        "emoji": "🧠",
+        "file": ROOT / "sources_stories.txt",
+        "hashtag": os.getenv("STORIES_HASHTAG", "").strip(),
+    },
+}
+
 # --- настройки сбора ---
 HOURS_BACK = _int("HOURS_BACK", 48)              # за сколько часов брать посты из каналов
 POSTS_PER_CHANNEL = _int("POSTS_PER_CHANNEL", 50)  # максимум постов с одного канала
@@ -55,6 +72,17 @@ TOP_N = _int("TOP_N", 10)                         # сколько лучших 
 MAX_PER_SOURCE = _int("MAX_PER_SOURCE", 3)        # не больше N штук с одного источника
 MIN_RELEVANCE = _float("MIN_RELEVANCE", 6)        # порог "в тему" (0-10)
 MIN_TEXT_LEN = _int("MIN_TEXT_LEN", 120)          # короче — не пост, а мусор
+NEWS_MAX_AGE_HOURS = _int("NEWS_MAX_AGE_HOURS", 72)  # новости старше — не новости
+HISTORY_SIZE = _int("HISTORY_SIZE", 150)          # сколько прошлых тем помнить, чтобы не повторяться
+
+
+def is_channel(source: str) -> bool:
+    s = source.strip().lower()
+    return s.startswith("@") or "t.me/" in s
+
+
+def sources(category: str) -> list[str]:
+    return read_list(CATEGORIES[category]["file"])
 
 
 def read_list(path: Path) -> list[str]:

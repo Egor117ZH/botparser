@@ -63,6 +63,11 @@ async def main() -> None:
         say("🌍 без прокси")
     db.conn()
 
+    for old in config.OLD_SOURCE_FILES:
+        if config.read_list(old):
+            say(f"⚠️ {old.name} больше не используется — перенеси источники в "
+                "sources_news.txt (новости) или sources_stories.txt (мышление)")
+
     # 1. бот
     say("[1/3] Проверяю бота (api.telegram.org)…")
     session = AiohttpSession(proxy=config.PROXY) if config.PROXY else AiohttpSession()

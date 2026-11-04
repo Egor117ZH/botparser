@@ -11,6 +11,7 @@ class Item:
     url: str
     text: str
     title: str = ""
+    category: str = ""   # "news" / "stories" — проставляет collector
     date: datetime | None = None
 
     views: int = 0
@@ -24,5 +25,6 @@ class Item:
     topic: str = ""
     score: float = 0.0       # итоговая оценка 0..10
 
+    gist: str = ""                    # о чём материал одной строкой (для защиты от повторов)
     post: str = ""                    # текст, который отправим тебе
     media_msg: Any = field(default=None, repr=False)  # сообщение telethon с фото

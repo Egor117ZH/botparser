@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 
 import feedparser
@@ -40,6 +41,16 @@ def _is_feed(content_type: str, body: str) -> bool:
 def _feed_links(body: str) -> list[tuple[str, str]]:
     feed = feedparser.parse(body)
     return [(e.link, e.get("title", "")) for e in feed.entries if e.get("link")]
+
+
+def _parse_date(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        d = datetime.fromisoformat(value[:19])
+    except ValueError:
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
 def _find_feed(html: str, base_url: str) -> str | None:
@@ -86,11 +97,12 @@ async def _fetch_article(client: httpx.AsyncClient, url: str, title: str, source
     )
     if not text or len(text) < 300:
         return None
+    meta = await asyncio.to_thread(trafilatura.extract_metadata, html)
     if not title:
-        meta = await asyncio.to_thread(trafilatura.extract_metadata, html)
         title = (meta.title if meta else "") or ""
+    date = _parse_date(meta.date if meta else None)
 
-    return Item(kind="web", key=f"web:{url}", source=source, url=url, text=text[:6000], title=title)
+    return Item(kind="web", key=f"web:{url}", source=source, url=url, text=text[:6000], title=title, date=date)
 
 
 async def fetch_site(client: httpx.AsyncClient, site_url: str, limit: int) -> list[Item]:

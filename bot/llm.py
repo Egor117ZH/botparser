@@ -51,12 +51,12 @@ def _clean(text: str) -> str:
     return re.sub(r"^(пост|текст поста)\s*:\s*", "", text, flags=re.I)
 
 
-async def _score_batch(batch: list[Item]) -> None:
+async def _score_batch(batch: list[Item], category: str) -> None:
     lines = []
     for i, it in enumerate(batch):
         body = (it.title + "\n" if it.title else "") + it.text[:700]
         lines.append(f"### id={i}\n{body}")
-    raw = await chat(prompts.SCORE_SYSTEM, "\n\n".join(lines), temperature=0.1, json_mode=True)
+    raw = await chat(prompts.SCORE[category], "\n\n".join(lines), temperature=0.1, json_mode=True)
     data = _parse_json(raw)
     for row in data.get("items", []):
         try:
@@ -65,12 +65,11 @@ async def _score_batch(batch: list[Item]) -> None:
             continue
         it.relevance = float(row.get("relevance", 0) or 0)
         it.interest = float(row.get("interest", 0) or 0)
-        it.topic = str(row.get("topic", "") or "")
 
 
-async def score_items(items: list[Item]) -> None:
+async def score_items(items: list[Item], category: str) -> None:
     batches = [items[i : i + SCORE_BATCH] for i in range(0, len(items), SCORE_BATCH)]
-    results = await asyncio.gather(*(_score_batch(b) for b in batches), return_exceptions=True)
+    results = await asyncio.gather(*(_score_batch(b, category) for b in batches), return_exceptions=True)
     errors = [r for r in results if isinstance(r, Exception)]
     if errors and len(errors) == len(batches):
         raise errors[0]
@@ -78,10 +77,39 @@ async def score_items(items: list[Item]) -> None:
         log.warning("батч оценки упал: %s", e)
 
 
+async def select_unique(cands: list[Item], history: list[str], category: str, n: int) -> list[Item]:
+    """Выбирает до n кандидатов без повторов между собой и с тем, что уже выходило."""
+    name = config.CATEGORIES[category]["name"]
+    hist = "\n".join(f"- {h}" for h in history) or "- (пока ничего)"
+    lines = []
+    for i, it in enumerate(cands):
+        body = (it.title + "\n" if it.title else "") + it.text[:400]
+        lines.append(f"### id={i}\n{body}")
+    user = f"УЖЕ ВЫХОДИЛО:\n{hist}\n\nКАНДИДАТЫ:\n" + "\n\n".join(lines)
+
+    raw = await chat(prompts.SELECT.format(name=name, n=n), user, temperature=0.1, json_mode=True)
+    out: list[Item] = []
+    used: set[int] = set()
+    for row in _parse_json(raw).get("selected", []):
+        try:
+            idx = int(row["id"])
+            it = cands[idx]
+        except (KeyError, ValueError, IndexError, TypeError):
+            continue
+        if idx in used:
+            continue
+        used.add(idx)
+        it.gist = str(row.get("gist") or it.title or it.text[:80]).strip()
+        out.append(it)
+        if len(out) >= n:
+            break
+    return out
+
+
 async def write_post(item: Item) -> str:
-    user = f"Заголовок: {item.title}\n\n{item.text}"
-    return _clean(await chat(prompts.WRITE_SYSTEM, user, temperature=0.8))
+    user = f"Заголовок: {item.title}\n\n{item.text}" if item.title else item.text
+    return _clean(await chat(prompts.WRITE[item.category], user, temperature=0.8))
 
 
 async def uniqualize(text: str) -> str:
-    return _clean(await chat(prompts.UNIQ_SYSTEM, text, temperature=0.9))
+    return _clean(await chat(prompts.UNIQ, text, temperature=0.9))

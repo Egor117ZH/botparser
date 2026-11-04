@@ -21,14 +21,13 @@ from .tg_parser import TgParser
 
 log = logging.getLogger(__name__)
 
-BTN_COLLECT = "🔎 Собрать посты"
+CATS = config.CATEGORIES
+BTN = {cat: f"{c['emoji']} {c['name']}" for cat, c in CATS.items()}  # «📰 Новости», «🧠 Мышление»
 BTN_SOURCES = "📋 Источники"
 
 NO_PREVIEW = LinkPreviewOptions(is_disabled=True)
 CAPTION_LIMIT = 1024
 TEXT_LIMIT = 4096
-
-TOPIC_EMOJI = {"style": "👔", "perfume": "🧴", "psychology": "🧠", "fitness": "💪"}
 
 router = Router()
 router.message.filter(F.from_user.id == config.ADMIN_ID)
@@ -41,7 +40,10 @@ _collect_lock = asyncio.Lock()
 
 def main_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=BTN_COLLECT), KeyboardButton(text=BTN_SOURCES)]],
+        keyboard=[
+            [KeyboardButton(text=BTN["news"]), KeyboardButton(text=BTN["stories"])],
+            [KeyboardButton(text=BTN_SOURCES)],
+        ],
         resize_keyboard=True,
     )
 
@@ -59,12 +61,16 @@ def _short(n: int) -> str:
     return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
 
 
+def _with_hashtag(text: str, category: str) -> str:
+    tag = CATS.get(category, {}).get("hashtag", "")
+    return f"{text}\n\n{tag}" if tag else text
+
+
 def _footer(it: Item) -> str:
-    parts = [f"⭐ {it.score:.1f}", TOPIC_EMOJI.get(it.topic, "📌") + " " + it.source]
+    c = CATS[it.category]
+    parts = [f"⭐ {it.score:.1f}", f"{c['emoji']} {c['name']}", it.source]
     if it.kind == "tg":
-        parts.append(f"👁 {_short(it.views)}  ❤️ {_short(it.reactions)}  🔁 {_short(it.forwards)}")
-    else:
-        parts.append("🌐 пост по статье")
+        parts.append(f"👁 {_short(it.views)}  ❤️ {_short(it.reactions)}")
     return "\n\n———\n" + " · ".join(parts) + f"\n{it.url}"
 
 
@@ -81,12 +87,14 @@ def _fit(text: str, footer: str, limit: int) -> str:
 async def cmd_start(msg: Message) -> None:
     await msg.answer(
         "Здарова 👋\n\n"
-        f"«{BTN_COLLECT}» — соберу свежак из каналов и сайтов и пришлю лучшее.\n"
-        f"«{BTN_SOURCES}» — что сейчас мониторю.\n\n"
-        "Добавить источник:\n"
-        "/addchannel @username\n"
-        "/addsite https://site.ru\n\n"
-        "/reset — забыть, что уже присылал (пришлю всё заново)",
+        f"«{BTN['news']}» — соберу свежие новости и напишу посты (с хэштегом {CATS['news']['hashtag'] or '—'})\n"
+        f"«{BTN['stories']}» — истории и посты про принципы и мужское мышление\n"
+        f"«{BTN_SOURCES}» — что мониторю\n\n"
+        "Добавить источник (сайт или @канал):\n"
+        "/addnews https://site.ru — в новости\n"
+        "/addstory https://site.ru — в мышление\n\n"
+        "Повторов не будет: бот помнит, о чём уже писал.\n"
+        "/reset — забыть всё и начать с чистого листа",
         reply_markup=main_kb(),
     )
 
@@ -94,57 +102,73 @@ async def cmd_start(msg: Message) -> None:
 @router.message(F.text == BTN_SOURCES)
 @router.message(Command("sources"))
 async def cmd_sources(msg: Message) -> None:
-    channels = config.read_list(config.CHANNELS_FILE)
-    sites = config.read_list(config.SITES_FILE)
-    text = "📢 <b>Каналы</b>"
-    if not config.TG_PARSER_ENABLED:
-        text += " (выключены — нет TG_API_ID/TG_API_HASH/TG_PHONE в .env)"
-    text += "\n" + ("\n".join(channels) or "пусто")
-    text += "\n\n🌐 <b>Сайты</b>\n" + ("\n".join(sites) or "пусто")
-    text += "\n\nПравить можно в файлах channels.txt и sites.txt"
-    await msg.answer(text, parse_mode="HTML", link_preview_options=NO_PREVIEW)
+    parts = []
+    for cat, c in CATS.items():
+        srcs = config.sources(cat)
+        lines = []
+        for src in srcs:
+            mark = "📢" if config.is_channel(src) else "🌐"
+            off = " (выкл, нет TG_API_ID)" if config.is_channel(src) and not config.TG_PARSER_ENABLED else ""
+            lines.append(f"{mark} {src}{off}")
+        parts.append(f"{c['emoji']} <b>{c['name']}</b> — файл {c['file'].name}\n" + ("\n".join(lines) or "пусто"))
+    await msg.answer("\n\n".join(parts), parse_mode="HTML", link_preview_options=NO_PREVIEW)
 
 
-@router.message(Command("addchannel"))
-async def cmd_addchannel(msg: Message) -> None:
+async def _add_source(msg: Message, category: str, cmd: str) -> None:
     arg = (msg.text or "").split(maxsplit=1)[1:]
     if not arg:
-        await msg.answer("Пример: /addchannel @username")
+        await msg.answer(f"Пример: /{cmd} https://site.ru или /{cmd} @channel")
         return
-    ok = config.append_to_list(config.CHANNELS_FILE, arg[0].strip())
-    text = "✅ добавил" if ok else "уже есть в списке"
-    if not config.TG_PARSER_ENABLED:
-        text += "\n⚠️ чтение каналов пока выключено — заработает, когда заполнишь TG_API_ID/TG_API_HASH/TG_PHONE"
-    await msg.answer(text)
+    src = arg[0].strip()
+    ok = config.append_to_list(CATS[category]["file"], src)
+    text = f"✅ добавил в «{CATS[category]['name']}»" if ok else "уже есть в списке"
+    if ok and config.is_channel(src) and not config.TG_PARSER_ENABLED:
+        text += "\n⚠️ каналы пока не читаются — заработает, когда заполнишь TG_API_ID/TG_API_HASH/TG_PHONE"
+    await msg.answer(text, link_preview_options=NO_PREVIEW)
 
 
-@router.message(Command("addsite"))
-async def cmd_addsite(msg: Message) -> None:
-    arg = (msg.text or "").split(maxsplit=1)[1:]
-    if not arg:
-        await msg.answer("Пример: /addsite https://site.ru")
-        return
-    ok = config.append_to_list(config.SITES_FILE, arg[0].strip())
-    await msg.answer("✅ добавил" if ok else "уже есть в списке", link_preview_options=NO_PREVIEW)
+@router.message(Command("addnews"))
+async def cmd_addnews(msg: Message) -> None:
+    await _add_source(msg, "news", "addnews")
+
+
+@router.message(Command("addstory"))
+async def cmd_addstory(msg: Message) -> None:
+    await _add_source(msg, "stories", "addstory")
 
 
 @router.message(Command("reset"))
 async def cmd_reset(msg: Message) -> None:
-    n = db.reset_seen()
-    await msg.answer(f"🧹 забыл {n} материалов")
+    seen, hist = db.reset()
+    await msg.answer(f"🧹 забыл {seen} просмотренных материалов и {hist} тем из истории")
 
 
 # ---------- сбор ----------
 
-@router.message(F.text == BTN_COLLECT)
-@router.message(Command("collect"))
-async def cmd_collect(msg: Message, bot: Bot, tg: TgParser) -> None:
+@router.message(F.text == BTN["news"])
+@router.message(Command("news"))
+async def cmd_news(msg: Message, bot: Bot, tg: TgParser) -> None:
+    await _collect(msg, bot, tg, "news")
+
+
+@router.message(F.text == BTN["stories"])
+@router.message(Command("stories"))
+async def cmd_stories(msg: Message, bot: Bot, tg: TgParser) -> None:
+    await _collect(msg, bot, tg, "stories")
+
+
+async def _collect(msg: Message, bot: Bot, tg: TgParser, category: str) -> None:
+    c = CATS[category]
+    if not config.sources(category):
+        cmd = "addnews" if category == "news" else "addstory"
+        await msg.answer(f"В «{c['name']}» пока нет источников. Добавь: /{cmd} https://site.ru")
+        return
     if _collect_lock.locked():
         await msg.answer("⏳ уже собираю, погоди")
         return
 
     async with _collect_lock:
-        status = await msg.answer("🚀 начинаю сбор…")
+        status = await msg.answer(f"🚀 собираю «{c['name']}»…")
         last = {"text": ""}
 
         async def progress(text: str) -> None:
@@ -157,16 +181,16 @@ async def cmd_collect(msg: Message, bot: Bot, tg: TgParser) -> None:
                 pass
 
         try:
-            top, errors = await collector.collect(tg, progress)
+            top, errors = await collector.collect(tg, category, progress)
         except Exception as e:  # noqa: BLE001
             log.exception("сбор упал")
             await status.edit_text(f"❌ сбор упал: {e.__class__.__name__}: {e}")
             return
 
         if not top:
-            text = "🤷 ничего нового и годного не нашёл"
+            text = f"🤷 {c['name']}: ничего нового и без повторов не нашёл"
         else:
-            text = f"✅ готово, лучшие {len(top)}:"
+            text = f"✅ {c['name']}: {len(top)} постов, все про разное:"
         if errors:
             text += "\n\n⚠️ проблемы:\n" + "\n".join(f"• {e}" for e in errors[:10])
         await status.edit_text(text[:TEXT_LIMIT], link_preview_options=NO_PREVIEW)
@@ -181,19 +205,20 @@ async def cmd_collect(msg: Message, bot: Bot, tg: TgParser) -> None:
 
 
 async def _send_item(bot: Bot, chat_id: int, it: Item, tg: TgParser) -> None:
-    post_id = db.save_post(it.kind, it.source, it.url, it.post)
+    post_id = db.save_post(it.category, it.kind, it.source, it.url, it.post)
     kb = post_kb(post_id)
     footer = _footer(it)
+    body = _with_hashtag(it.post, it.category)
 
     photo = await tg.download_photo(it) if it.kind == "tg" else None
     if photo:
         file = BufferedInputFile(photo, filename="photo.jpg")
-        if len(it.post) + len(footer) <= CAPTION_LIMIT:
-            await bot.send_photo(chat_id, file, caption=it.post + footer, reply_markup=kb)
+        if len(body) + len(footer) <= CAPTION_LIMIT:
+            await bot.send_photo(chat_id, file, caption=body + footer, reply_markup=kb)
             return
         await bot.send_photo(chat_id, file)
 
-    await bot.send_message(chat_id, _fit(it.post, footer, TEXT_LIMIT), reply_markup=kb, link_preview_options=NO_PREVIEW)
+    await bot.send_message(chat_id, _fit(body, footer, TEXT_LIMIT), reply_markup=kb, link_preview_options=NO_PREVIEW)
 
 
 # ---------- кнопки ----------
@@ -213,10 +238,13 @@ async def cb_uniq(cb: CallbackQuery) -> None:
         await cb.message.reply(f"❌ нейронка не ответила: {e}")
         return
 
-    new_id = db.save_post(row["kind"], row["source"], row["url"], new_text)
+    category = row["category"] or "news"
+    new_id = db.save_post(category, row["kind"], row["source"], row["url"], new_text)
     footer = f"\n\n———\n🔄 уникализировано · {row['source']}\n{row['url']}"
     await cb.message.reply(
-        _fit(new_text, footer, TEXT_LIMIT), reply_markup=post_kb(new_id), link_preview_options=NO_PREVIEW
+        _fit(_with_hashtag(new_text, category), footer, TEXT_LIMIT),
+        reply_markup=post_kb(new_id),
+        link_preview_options=NO_PREVIEW,
     )
 
 
