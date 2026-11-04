@@ -9,6 +9,7 @@ from aiogram.exceptions import TelegramUnauthorizedError
 
 from bot import config, db
 from bot.handlers import router, stranger_router
+from bot.sources_ui import router as sources_router
 from bot.llm import client as llm_client
 from bot.tg_parser import TgParser
 
@@ -99,6 +100,7 @@ async def main() -> None:
 
     dp = Dispatcher()
     dp["tg"] = tg  # прокидываем парсер в хендлеры
+    dp.include_router(sources_router)  # раньше основного: там ввод ссылок
     dp.include_router(router)
     dp.include_router(stranger_router)
 

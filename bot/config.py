@@ -96,8 +96,45 @@ def read_list(path: Path) -> list[str]:
     return out
 
 
+def _same(a: str, b: str) -> bool:
+    def norm(x: str) -> str:
+        x = x.strip().lower().rstrip("/")
+        for p in ("https://", "http://", "www."):
+            x = x.removeprefix(p)
+        return x
+    return norm(a) == norm(b)
+
+
+def normalize_source(raw: str) -> str | None:
+    """Приводит ввод к нормальному виду. None — не похоже ни на сайт, ни на канал."""
+    s = raw.strip().strip(",;()<>\"'«»").rstrip(".")
+    if not s:
+        return None
+    low = s.lower()
+    if s.startswith("@"):
+        return s if len(s) > 2 and " " not in s else None
+    if "t.me/" in low:
+        return s if low.startswith("http") else "https://" + s.lstrip("/")
+    if low.startswith(("http://", "https://")):
+        return s
+    if "." in s and " " not in s and not s.startswith("."):  # site.ru, site.ru/blog
+        return "https://" + s
+    return None
+
+
+def remove_from_list(path: Path, value: str) -> bool:
+    if not path.exists():
+        return False
+    lines = path.read_text(encoding="utf-8").splitlines()
+    kept = [ln for ln in lines if ln.strip().startswith("#") or not _same(ln, value)]
+    if len(kept) == len(lines):
+        return False
+    path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    return True
+
+
 def append_to_list(path: Path, value: str) -> bool:
-    if value in read_list(path):
+    if any(_same(value, x) for x in read_list(path)):
         return False
     text = path.read_text(encoding="utf-8") if path.exists() else ""
     if text and not text.endswith("\n"):

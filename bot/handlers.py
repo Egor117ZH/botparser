@@ -4,6 +4,7 @@ import logging
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
+from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     BufferedInputFile,
     CallbackQuery,
@@ -90,51 +91,11 @@ async def cmd_start(msg: Message) -> None:
         f"«{BTN['news']}» — соберу свежие новости и напишу посты (с хэштегом {CATS['news']['hashtag'] or '—'})\n"
         f"«{BTN['stories']}» — истории и посты про принципы и мужское мышление\n"
         f"«{BTN_SOURCES}» — что мониторю\n\n"
-        "Добавить источник (сайт или @канал):\n"
-        "/addnews https://site.ru — в новости\n"
-        "/addstory https://site.ru — в мышление\n\n"
+        "Источники добавляются и удаляются через «📋 Источники» — у каждой рубрики свои.\n\n"
         "Повторов не будет: бот помнит, о чём уже писал.\n"
         "/reset — забыть всё и начать с чистого листа",
         reply_markup=main_kb(),
     )
-
-
-@router.message(F.text == BTN_SOURCES)
-@router.message(Command("sources"))
-async def cmd_sources(msg: Message) -> None:
-    parts = []
-    for cat, c in CATS.items():
-        srcs = config.sources(cat)
-        lines = []
-        for src in srcs:
-            mark = "📢" if config.is_channel(src) else "🌐"
-            off = " (выкл, нет TG_API_ID)" if config.is_channel(src) and not config.TG_PARSER_ENABLED else ""
-            lines.append(f"{mark} {src}{off}")
-        parts.append(f"{c['emoji']} <b>{c['name']}</b> — файл {c['file'].name}\n" + ("\n".join(lines) or "пусто"))
-    await msg.answer("\n\n".join(parts), parse_mode="HTML", link_preview_options=NO_PREVIEW)
-
-
-async def _add_source(msg: Message, category: str, cmd: str) -> None:
-    arg = (msg.text or "").split(maxsplit=1)[1:]
-    if not arg:
-        await msg.answer(f"Пример: /{cmd} https://site.ru или /{cmd} @channel")
-        return
-    src = arg[0].strip()
-    ok = config.append_to_list(CATS[category]["file"], src)
-    text = f"✅ добавил в «{CATS[category]['name']}»" if ok else "уже есть в списке"
-    if ok and config.is_channel(src) and not config.TG_PARSER_ENABLED:
-        text += "\n⚠️ каналы пока не читаются — заработает, когда заполнишь TG_API_ID/TG_API_HASH/TG_PHONE"
-    await msg.answer(text, link_preview_options=NO_PREVIEW)
-
-
-@router.message(Command("addnews"))
-async def cmd_addnews(msg: Message) -> None:
-    await _add_source(msg, "news", "addnews")
-
-
-@router.message(Command("addstory"))
-async def cmd_addstory(msg: Message) -> None:
-    await _add_source(msg, "stories", "addstory")
 
 
 @router.message(Command("reset"))
@@ -147,21 +108,22 @@ async def cmd_reset(msg: Message) -> None:
 
 @router.message(F.text == BTN["news"])
 @router.message(Command("news"))
-async def cmd_news(msg: Message, bot: Bot, tg: TgParser) -> None:
+async def cmd_news(msg: Message, bot: Bot, tg: TgParser, state: FSMContext) -> None:
+    await state.clear()
     await _collect(msg, bot, tg, "news")
 
 
 @router.message(F.text == BTN["stories"])
 @router.message(Command("stories"))
-async def cmd_stories(msg: Message, bot: Bot, tg: TgParser) -> None:
+async def cmd_stories(msg: Message, bot: Bot, tg: TgParser, state: FSMContext) -> None:
+    await state.clear()
     await _collect(msg, bot, tg, "stories")
 
 
 async def _collect(msg: Message, bot: Bot, tg: TgParser, category: str) -> None:
     c = CATS[category]
     if not config.sources(category):
-        cmd = "addnews" if category == "news" else "addstory"
-        await msg.answer(f"В «{c['name']}» пока нет источников. Добавь: /{cmd} https://site.ru")
+        await msg.answer(f"В «{c['name']}» пока нет источников. Жми «{BTN_SOURCES}» → «{c['name']}» → «➕ Добавить»")
         return
     if _collect_lock.locked():
         await msg.answer("⏳ уже собираю, погоди")
